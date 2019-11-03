@@ -7,43 +7,78 @@
       ref="temperatureMap" 
       :zoom="zoom" 
       :center="center" 
-      :options="{zoomControl: false}"
+      :options="{zoomControl: true}"
+      @zoomend="getMapData"
+      @moveend="getMapData"
     >
+ 
       <l-tile-layer :url="url" />
+
       <l-geo-json 
         ref="geoJson" 
-        :geojson="geojson" 
-        :optionsStyle="tileStyles"
-        :zIdex="1000"
-      />      
+        :geojson="geojson"
+        :options="{style: tileStyles}"
+        :zIndex="1000"
+      />
+
+      <l-control v-if="legendVisible"> 
+        <legend-component
+          v-if="minTemp && maxTemp" 
+          :minVal="minTemp"
+          :maxVal="maxTemp"
+          :levels="5"
+        />
+      </l-control>
     </l-map>
 
     <div 
-      class="map__button"
+      :class="`map__button ${getDataDisabled? 'disabled': ''}`"
       @click="handleButtonClick"
     >
-      SHOW TEMPERATURE
+      Показать температуру
     </div> 
   </div>
 </template>
 
 <script>
-import { LMap, LTileLayer, LGeoJson } from 'vue2-leaflet';
+import { LMap, LTileLayer, LGeoJson, LControl } from 'vue2-leaflet';
+import LegendComponent from '@/components/LegendComponent'
+
+import { interpolate } from '@/utils/interpolate'
+import { setFillColor } from '@/utils/setColor'
+
+const ZERO = 273.15
+const API_KEY = '60acc8160072c82960b8bb8ef3f1b49c'
 
 export default {
   components: {
     LMap,
     LTileLayer,
-    LGeoJson
+    LGeoJson,
+    LControl,
+    LegendComponent
   },
   data() {
     return {
+      xPointsData: 9,
+      yPointsData: 6,
+      splitLevel: 20,
       url: 'http://{s}.tile.osm.org/{z}/{x}/{y}.png',
-      zoom: 11,
-      centerLat: 55.7422, 
-      centerLng: 37.5719,
+      zoom: 5,
+      centerLat: 55.7422,  
+      centerLng: 37.57,
       mapBounds: null,
-      geojson: null
+      geojson: null,
+      tileStyles: function(feature) {
+        if (!feature.properties) feature.properties = {}
+        if (!feature.properties.style) feature.properties.style = {}
+
+        return feature.properties.style
+      },
+      minTemp: null,
+      maxTemp: null,
+      legendVisible: false,
+      getDataDisabled: false
     };
   },
   computed: {
@@ -52,77 +87,158 @@ export default {
     }
   },
   mounted () {
-    this.$nextTick(() => {
-       this.mapBounds = this.$refs.temperatureMap.mapObject.getBounds()
-    })
+    this.getMapData()
   },
   methods: {
-    handleButtonClick() {
-      const geojson = {
+    getMapData() {
+      this.$nextTick(() => {
+         this.mapBounds = this.$refs.temperatureMap.mapObject.getBounds()
+         const center =  this.$refs.temperatureMap.mapObject.getCenter()
+
+         this.centerLat = center.lat
+         this.centerLng = center.lng
+      })      
+    },
+    enableDataGetting() {
+      this.getDataDisabled = false
+    },
+    async handleButtonClick() {
+      if( this.getDataDisabled ) return
+
+      this.getDataDisabled = true
+      setTimeout(this.enableDataGetting, 60000)
+      const resp = await this.getNewTemperatureData()
+      
+      this.geojson = {
         type: 'FeatureCollection',
-        features: [
-          {  
-            type: 'Feature',
-            geometry: {
-              type: 'Polygon',
-              coordinates: [
-                [
-                  this.center,
-                  [this.mapBounds._southWest.lat, this.center[1]],
-                  [this.mapBounds._southWest.lat, this.mapBounds._southWest.lng],
-                  [this.center[0], this.mapBounds._southWest.lng]
-                ]
-              ]
-            },
-            properties: {
-              style: {
-                fillColor: "red",
-                fillOpacity: 0.5
+        features: resp
+      }
+    },
+    async getNewTemperatureData() {
+      const stepX = +(this.mapBounds._northEast.lng - this.mapBounds._southWest.lng) / (this.xPointsData - 1)
+      const stepY = +(this.mapBounds._northEast.lat - this.mapBounds._southWest.lat) / (this.yPointsData - 1)
+      const stepXsmall = stepX / this.splitLevel
+      const stepYsmall = stepY / this.splitLevel
+
+      let dataCoordsArray = []
+      let dataAreasArray = []
+      let viewCoordsArray = []
+
+      for( let i = 0; i < this.yPointsData; i++) {
+        for( let j = 0; j < this.xPointsData; j++) {
+          dataCoordsArray.push([(this.mapBounds._southWest.lng + j*stepX), (this.mapBounds._northEast.lat - i*stepY)])
+        }
+      }
+      let squareNum = 0
+
+      dataCoordsArray.forEach((point, num) => {
+        if((num+1)%this.xPointsData === 0) return
+        if(num > (dataCoordsArray.length - this.xPointsData - 1)) return
+
+        dataAreasArray.push([num, num+1, num+this.xPointsData, num+this.xPointsData+1])
+
+        for( let i = 0; i < this.splitLevel; i++) {
+          for( let j = 0; j < this.splitLevel; j++) {
+            const baseCorner = [(point[0] + j*stepXsmall), (point[1] - i*stepYsmall)]
+
+            viewCoordsArray.push(
+              { 
+                type: "Feature",
+                properties: {
+                  square: squareNum,
+                  style: {
+                    stroke: false,
+                    fillOpacity: 0.5
+                  }
+                },
+                geometry: {
+                  type: "Polygon",
+                  coordinates: [        
+                    [
+                      baseCorner,
+                      [baseCorner[0]+stepXsmall, baseCorner[1]],
+                      [baseCorner[0]+stepXsmall, baseCorner[1]+stepYsmall],
+                      [baseCorner[0], baseCorner[1]+stepYsmall],
+                      baseCorner
+                    ]
+                  ]
+                }
               }
-            }
-          },
-          {
-           "type": "Feature",
-           "geometry": {
-               "type": "Polygon",
-               "coordinates": [
-                   [
-                      this.center,
-                      [this.mapBounds._northEast.lat, this.center[1]],
-                      [this.mapBounds._northEast.lat, this.mapBounds._northEast.lng],
-                      [this.center[0], this.mapBounds._northEast.lng],
-                      this.center
-                   ]
-               ]
-           },
-            properties: {
-              style: {
-                fillColor: "#BD0026",
-                fillOpacity: 0.5
-              }
-            }
+            )
           }
-        ]
+        }
+        squareNum += 1
+      })
+
+
+      let tempArray = []
+
+      this.minTemp = null
+      this.maxTemp = null
+      for( let i = 0; i < dataCoordsArray.length; i++) {
+        let resp = await this.$axios.get(`?lat=${dataCoordsArray[i][1]}&lon=${dataCoordsArray[i][0]}&APPID=${API_KEY}`)
+        let temp = resp.data.main.temp - ZERO
+        
+        this.minTemp = this.minTemp && this.minTemp < temp? this.minTemp: temp
+        this.maxTemp = this.maxTemp && this.maxTemp > temp? this.maxTemp: temp 
+        tempArray.push(temp)
       }
 
-      this.geojson = geojson
-    },
-    tileStyles(feature) {
+      viewCoordsArray.forEach(point => {
+        const areaCoords = point.properties.square
+        const corners = dataAreasArray[point.properties.square].map(i => dataCoordsArray[i])
+        const temps = dataAreasArray[point.properties.square].map(i => tempArray[i])
+        const coords = point.geometry.coordinates[0][0]
+
+        const localTemp = interpolate(corners, temps, coords)
+        const fillColor = setFillColor(this.minTemp, this.maxTemp, localTemp)
+
+        point.properties.style.fillColor = fillColor
+      })
 
       debugger
 
-      if (!feature.properties) feature.properties = {}
-      if (!feature.properties.style) feature.properties.style = {}
+      this.legendVisible = true
 
-      return feature.properties.style
+      return viewCoordsArray
     }
   }
 }
 </script>
 
 <style scoped lang="scss">
-.map__container {
-  width: 600px;
-  height: 400px;
+.map {
+  box-sizing: border-box;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+
+  &__container {
+    width: 600px;
+    height: 400px;
+  }
+
+  &__button {
+    box-sizing: border-box;
+    margin-top: 10px;
+    padding: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #99f;
+    cursor: pointer;
+
+    &:hover {
+      opacity: 0.8;
+    }
+
+    &.disabled {
+      opacity: 0.8;
+      cursor: not-allowed;
+    }
+  }
 }
+
 </style>
