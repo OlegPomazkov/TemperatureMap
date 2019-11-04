@@ -1,6 +1,6 @@
 <template>
   <div class="map">
-    <h3>TEST</h3>
+    <h3>КАРТА РАСПРЕДЕЛЕНИЯ ТЕМПЕРАТУР</h3>
 
     <l-map 
       class="map__container" 
@@ -37,12 +37,15 @@
     >
       Показать температуру
     </div> 
+
+    <loader-component v-if="isLoading" />
   </div>
 </template>
 
 <script>
 import { LMap, LTileLayer, LGeoJson, LControl } from 'vue2-leaflet';
 import LegendComponent from '@/components/LegendComponent'
+import LoaderComponent from '@/components/LoaderComponent'
 
 import { interpolate } from '@/utils/interpolate'
 import { setFillColor } from '@/utils/setColor'
@@ -56,7 +59,8 @@ export default {
     LTileLayer,
     LGeoJson,
     LControl,
-    LegendComponent
+    LegendComponent,
+    LoaderComponent
   },
   data() {
     return {
@@ -68,7 +72,10 @@ export default {
       centerLat: 55.7422,  
       centerLng: 37.57,
       mapBounds: null,
-      geojson: null,
+      geojson: {
+        type: 'FeatureCollection',
+        features: []
+      },
       tileStyles: function(feature) {
         if (!feature.properties) feature.properties = {}
         if (!feature.properties.style) feature.properties.style = {}
@@ -78,7 +85,11 @@ export default {
       minTemp: null,
       maxTemp: null,
       legendVisible: false,
-      getDataDisabled: false
+      getDataDisabled: false,
+      dataCoordsArray: [],
+      dataAreasArray: [],
+      viewCoordsArray: [],
+      isLoading: false
     };
   },
   computed: {
@@ -90,15 +101,6 @@ export default {
     this.getMapData()
   },
   methods: {
-    getMapData() {
-      this.$nextTick(() => {
-         this.mapBounds = this.$refs.temperatureMap.mapObject.getBounds()
-         const center =  this.$refs.temperatureMap.mapObject.getCenter()
-
-         this.centerLat = center.lat
-         this.centerLng = center.lng
-      })      
-    },
     enableDataGetting() {
       this.getDataDisabled = false
     },
@@ -114,34 +116,48 @@ export default {
         features: resp
       }
     },
-    async getNewTemperatureData() {
+    getMapData() {
+      this.$nextTick(() => {
+        this.legendVisible = false
+        this.geojson = {
+          type: 'FeatureCollection',
+          features: []
+        }
+        this.mapBounds = this.$refs.temperatureMap.mapObject.getBounds()
+        const center =  this.$refs.temperatureMap.mapObject.getCenter()
+
+        this.centerLat = center.lat
+        this.centerLng = center.lng
+        this.setCoordsArrays()
+      })      
+    },
+    setCoordsArrays() {
       const stepX = +(this.mapBounds._northEast.lng - this.mapBounds._southWest.lng) / (this.xPointsData - 1)
       const stepY = +(this.mapBounds._northEast.lat - this.mapBounds._southWest.lat) / (this.yPointsData - 1)
       const stepXsmall = stepX / this.splitLevel
       const stepYsmall = stepY / this.splitLevel
 
-      let dataCoordsArray = []
-      let dataAreasArray = []
-      let viewCoordsArray = []
+      this.dataCoordsArray = []
+      this.dataAreasArray = []
+      this.viewCoordsArray = []
 
       for( let i = 0; i < this.yPointsData; i++) {
         for( let j = 0; j < this.xPointsData; j++) {
-          dataCoordsArray.push([(this.mapBounds._southWest.lng + j*stepX), (this.mapBounds._northEast.lat - i*stepY)])
+          this.dataCoordsArray.push([(this.mapBounds._southWest.lng + j*stepX), (this.mapBounds._northEast.lat - i*stepY)])
         }
       }
       let squareNum = 0
 
-      dataCoordsArray.forEach((point, num) => {
+      this.dataCoordsArray.forEach((point, num) => {
         if((num+1)%this.xPointsData === 0) return
-        if(num > (dataCoordsArray.length - this.xPointsData - 1)) return
+        if(num > (this.dataCoordsArray.length - this.xPointsData - 1)) return
 
-        dataAreasArray.push([num, num+1, num+this.xPointsData, num+this.xPointsData+1])
-
+        this.dataAreasArray.push([num, num+1, num+this.xPointsData, num+this.xPointsData+1])
         for( let i = 0; i < this.splitLevel; i++) {
           for( let j = 0; j < this.splitLevel; j++) {
             const baseCorner = [(point[0] + j*stepXsmall), (point[1] - i*stepYsmall)]
 
-            viewCoordsArray.push(
+            this.viewCoordsArray.push(
               { 
                 type: "Feature",
                 properties: {
@@ -169,14 +185,16 @@ export default {
         }
         squareNum += 1
       })
-
+    },
+    async getNewTemperatureData() {
+      this.isLoading = true
 
       let tempArray = []
 
       this.minTemp = null
       this.maxTemp = null
-      for( let i = 0; i < dataCoordsArray.length; i++) {
-        let resp = await this.$axios.get(`?lat=${dataCoordsArray[i][1]}&lon=${dataCoordsArray[i][0]}&APPID=${API_KEY}`)
+      for( let i = 0; i < this.dataCoordsArray.length; i++) {
+        let resp = await this.$axios.get(`?lat=${this.dataCoordsArray[i][1]}&lon=${this.dataCoordsArray[i][0]}&APPID=${API_KEY}`)
         let temp = resp.data.main.temp - ZERO
         
         this.minTemp = this.minTemp && this.minTemp < temp? this.minTemp: temp
@@ -184,10 +202,10 @@ export default {
         tempArray.push(temp)
       }
 
-      viewCoordsArray.forEach(point => {
+      this.viewCoordsArray.forEach(point => {
         const areaCoords = point.properties.square
-        const corners = dataAreasArray[point.properties.square].map(i => dataCoordsArray[i])
-        const temps = dataAreasArray[point.properties.square].map(i => tempArray[i])
+        const corners = this.dataAreasArray[point.properties.square].map(i => this.dataCoordsArray[i])
+        const temps = this.dataAreasArray[point.properties.square].map(i => tempArray[i])
         const coords = point.geometry.coordinates[0][0]
 
         const localTemp = interpolate(corners, temps, coords)
@@ -195,12 +213,9 @@ export default {
 
         point.properties.style.fillColor = fillColor
       })
-
-      debugger
-
       this.legendVisible = true
-
-      return viewCoordsArray
+      this.isLoading = false
+      return JSON.parse(JSON.stringify(this.viewCoordsArray))
     }
   }
 }
