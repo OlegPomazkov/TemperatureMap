@@ -1,7 +1,34 @@
 <template>
   <div class="map">
-    <h3>КАРТА РАСПРЕДЕЛЕНИЯ ТЕМПЕРАТУР</h3>
+    <div class="map__title">
+      КАРТА РАСПРЕДЕЛЕНИЯ ТЕМПЕРАТУР
+    </div>
 
+    <div class="map__controls">
+      <div class="map__controls__control">
+        <div class="map__controls__control__label">
+          Уровень интерполяции:
+        </div>  
+        <input  
+          class="map__controls__control__input"
+          v-model="splitLevel"
+          @change="getMapData"
+        />
+      </div>
+
+      <div class="map__controls__control">
+        <div class="map__controls__control__label">
+          Градаций цвета:
+        </div>  
+        <input  
+          class="map__controls__control__input"
+          v-model="colorLevels"
+          @change="getMapData"
+          @input="getMapData"
+        />
+      </div>
+    </div>
+    
     <l-map 
       class="map__container" 
       ref="temperatureMap" 
@@ -26,7 +53,7 @@
           v-if="minTemp && maxTemp" 
           :minVal="minTemp"
           :maxVal="maxTemp"
-          :levels="5"
+          :levels="+colorLevels"
         />
       </l-control>
     </l-map>
@@ -67,6 +94,7 @@ export default {
       xPointsData: 9,
       yPointsData: 6,
       splitLevel: 20,
+      colorLevels: 6,
       url: 'http://{s}.tile.osm.org/{z}/{x}/{y}.png',
       zoom: 5,
       centerLat: 55.7422,  
@@ -134,8 +162,8 @@ export default {
     setCoordsArrays() {
       const stepX = +(this.mapBounds._northEast.lng - this.mapBounds._southWest.lng) / (this.xPointsData - 1)
       const stepY = +(this.mapBounds._northEast.lat - this.mapBounds._southWest.lat) / (this.yPointsData - 1)
-      const stepXsmall = stepX / this.splitLevel
-      const stepYsmall = stepY / this.splitLevel
+      const stepXsmall = stepX / +this.splitLevel
+      const stepYsmall = stepY / +this.splitLevel
 
       this.dataCoordsArray = []
       this.dataAreasArray = []
@@ -153,8 +181,8 @@ export default {
         if(num > (this.dataCoordsArray.length - this.xPointsData - 1)) return
 
         this.dataAreasArray.push([num, num+1, num+this.xPointsData, num+this.xPointsData+1])
-        for( let i = 0; i < this.splitLevel; i++) {
-          for( let j = 0; j < this.splitLevel; j++) {
+        for( let i = 0; i < +this.splitLevel; i++) {
+          for( let j = 0; j < +this.splitLevel; j++) {
             const baseCorner = [(point[0] + j*stepXsmall), (point[1] - i*stepYsmall)]
 
             this.viewCoordsArray.push(
@@ -209,12 +237,13 @@ export default {
         const coords = point.geometry.coordinates[0][0]
 
         const localTemp = interpolate(corners, temps, coords)
-        const fillColor = setFillColor(this.minTemp, this.maxTemp, localTemp)
+        const fillColor = setFillColor(this.minTemp, this.maxTemp, localTemp, this.colorLevels)
 
         point.properties.style.fillColor = fillColor
       })
       this.legendVisible = true
       this.isLoading = false
+
       return JSON.parse(JSON.stringify(this.viewCoordsArray))
     }
   }
@@ -230,6 +259,41 @@ export default {
   justify-content: flex-start;
   align-items: center;
 
+  &__title {
+    margin-bottom: 10px;
+    font-size: 17px;
+    font-weight: 500;
+    color: #555;
+  }
+
+  &__controls {
+    margin-bottom: 5px;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    font-size: 14px;
+    font-weight: normal;
+    color: #555; 
+
+    &__control {
+      margin-left: 5px;
+      margin-right: 5px;
+      display: flex;
+      flex-direction: row;
+      justify-content: flex-start;
+      align-items: center;
+
+      &__label {
+        margin-right: 5px;
+      }
+      &__input {
+        text-align: center;
+        width: 40px;
+      }
+    }
+  }
+
   &__container {
     width: 600px;
     height: 400px;
@@ -238,10 +302,12 @@ export default {
   &__button {
     box-sizing: border-box;
     margin-top: 10px;
-    padding: 10px;
+    padding: 8px;
     display: flex;
     justify-content: center;
     align-items: center;
+    font-size: 13px;
+    font-weight: 400;
     background: #99f;
     cursor: pointer;
 

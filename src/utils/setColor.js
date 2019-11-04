@@ -1,5 +1,4 @@
-export function setFillColor(minTemp, maxTemp, temp) {
-  const levels = 5
+export function setFillColor(minTemp, maxTemp, temp, levels) {
   const dT = maxTemp - minTemp
   const normT = temp - minTemp
 
