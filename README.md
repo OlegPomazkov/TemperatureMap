@@ -1,28 +1,17 @@
 # weather-map
 
-## Project setup
+
+### Клонировать репозиторий и запустить в нем для установки зависимостей
 ```
 npm install
 ```
 
-### Compiles and hot-reloads for development
+### Запуск проекта для просмотра результатов
 ```
 npm run serve
 ```
 
-### Compiles and minifies for production
-```
-npm run build
-```
-
-### Run your tests
-```
-npm run test
-```
-
-### Lints and fixes files
-```
-npm run lint
+### Проект можно будет посмотреть на http://localhost:8080/ или на :8081 и т.д., если указанные выше порты будут заняты
 ```
 
 ### Customize configuration
