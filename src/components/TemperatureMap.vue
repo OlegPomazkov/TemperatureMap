@@ -11,8 +11,8 @@
         </div>  
         <input  
           class="map__controls__control__input"
-          v-model="splitLevel"
-          @change="getMapData"
+          v-model="splitLevelTemp"
+          @change="handleSplitLevelChange"
         />
       </div>
 
@@ -22,9 +22,8 @@
         </div>  
         <input  
           class="map__controls__control__input"
-          v-model="colorLevels"
-          @change="getMapData"
-          @input="getMapData"
+          v-model="colorLevelsTemp"
+          @change="handleColorLevelsChange"
         />
       </div>
     </div>
@@ -95,6 +94,8 @@ export default {
       yPointsData: 6,
       splitLevel: 20,
       colorLevels: 6,
+      splitLevelTemp: 20,
+      colorLevelsTemp: 6,
       url: 'http://{s}.tile.osm.org/{z}/{x}/{y}.png',
       zoom: 5,
       centerLat: 55.7422,  
@@ -129,6 +130,14 @@ export default {
     this.getMapData()
   },
   methods: {
+    handleSplitLevelChange() {
+      this.splitLevel = this.splitLevelTemp
+      this.getMapData()
+    },
+    handleColorLevelsChange() {
+      this.colorLevels = this.colorLevelsTemp
+      this.getMapData()
+    },
     enableDataGetting() {
       this.getDataDisabled = false
     },
@@ -139,9 +148,11 @@ export default {
       setTimeout(this.enableDataGetting, 60000)
       const resp = await this.getNewTemperatureData()
       
-      this.geojson = {
-        type: 'FeatureCollection',
-        features: resp
+      if(resp) {
+        this.geojson = {
+          type: 'FeatureCollection',
+          features: resp
+        }        
       }
     },
     getMapData() {
@@ -216,35 +227,41 @@ export default {
     },
     async getNewTemperatureData() {
       this.isLoading = true
+      try{
+        let tempArray = []
 
-      let tempArray = []
+        this.minTemp = null
+        this.maxTemp = null
+        for( let i = 0; i < this.dataCoordsArray.length; i++) {
+          let resp = await this.$axios.get(`?lat=${this.dataCoordsArray[i][1]}&lon=${this.dataCoordsArray[i][0]}&APPID=${API_KEY}`)
+          let temp = resp.data.main.temp - ZERO
+          
+          this.minTemp = this.minTemp && this.minTemp < temp? this.minTemp: temp
+          this.maxTemp = this.maxTemp && this.maxTemp > temp? this.maxTemp: temp 
+          tempArray.push(temp)
+        }
 
-      this.minTemp = null
-      this.maxTemp = null
-      for( let i = 0; i < this.dataCoordsArray.length; i++) {
-        let resp = await this.$axios.get(`?lat=${this.dataCoordsArray[i][1]}&lon=${this.dataCoordsArray[i][0]}&APPID=${API_KEY}`)
-        let temp = resp.data.main.temp - ZERO
-        
-        this.minTemp = this.minTemp && this.minTemp < temp? this.minTemp: temp
-        this.maxTemp = this.maxTemp && this.maxTemp > temp? this.maxTemp: temp 
-        tempArray.push(temp)
+        this.viewCoordsArray.forEach(point => {
+          const areaCoords = point.properties.square
+          const corners = this.dataAreasArray[point.properties.square].map(i => this.dataCoordsArray[i])
+          const temps = this.dataAreasArray[point.properties.square].map(i => tempArray[i])
+          const coords = point.geometry.coordinates[0][0]
+
+          const localTemp = interpolate(corners, temps, coords)
+          const fillColor = setFillColor(this.minTemp, this.maxTemp, localTemp, this.colorLevels)
+
+          point.properties.style.fillColor = fillColor
+        })
+        this.legendVisible = true
+        this.isLoading = false
+
+        return JSON.parse(JSON.stringify(this.viewCoordsArray))
+      } catch(err){
+        this.isLoading = false
+        console.error(err)
+
+        return false
       }
-
-      this.viewCoordsArray.forEach(point => {
-        const areaCoords = point.properties.square
-        const corners = this.dataAreasArray[point.properties.square].map(i => this.dataCoordsArray[i])
-        const temps = this.dataAreasArray[point.properties.square].map(i => tempArray[i])
-        const coords = point.geometry.coordinates[0][0]
-
-        const localTemp = interpolate(corners, temps, coords)
-        const fillColor = setFillColor(this.minTemp, this.maxTemp, localTemp, this.colorLevels)
-
-        point.properties.style.fillColor = fillColor
-      })
-      this.legendVisible = true
-      this.isLoading = false
-
-      return JSON.parse(JSON.stringify(this.viewCoordsArray))
     }
   }
 }
