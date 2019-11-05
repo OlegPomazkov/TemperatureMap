@@ -4,7 +4,7 @@ import { Icon }  from 'leaflet'
 import axios from 'axios'
 import 'leaflet/dist/leaflet.css'
 
-axios.defaults.baseURL = 'http://api.openweathermap.org/data/2.5/weather';
+axios.defaults.baseURL = 'https://api.openweathermap.org/data/2.5/weather';
 
 // this part resolve an issue where the markers would not appear
 delete Icon.Default.prototype._getIconUrl;
